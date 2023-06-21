@@ -80,11 +80,39 @@ function removeFileExtension(filePath: string): string {
   return path.join(directory, fileNameWithoutExtension);
 }
 
-function getLineLength(filePath: string, lineNumber: number): number {
+function getPreviousSpaceOrNewlinePosition(text: string, startPosition: number): number {
+  const substring = text.substring(startPosition);
+  const spaceIndex = substring.indexOf(' ');
+  const newlineIndex = substring.indexOf('\n');
+
+  if (spaceIndex === -1 && newlineIndex === -1) {
+      // If neither space nor newline is found, return -1
+      return -1;
+  }
+
+  if (spaceIndex === -1) {
+      // If only newline is found, return its index
+      return startPosition + newlineIndex;
+  }
+
+  if (newlineIndex === -1) {
+      // If only space is found, return its index
+      return startPosition + spaceIndex;
+  }
+
+  // Return the index of the first occurrence of either space or newline
+  return startPosition + Math.min(spaceIndex, newlineIndex);
+}
+
+function getLineLength(filePath: string, lineNumber: number, columnNumber: number): number {
   try {
     const fileContent = fs.readFileSync(filePath, 'utf-8');
     const lines = fileContent.split('\n');
     const line = lines[lineNumber - 1];
+    const posi = getPreviousSpaceOrNewlinePosition(line, columnNumber);
+    if (posi !== -1) {
+      return posi;
+    }
     return line.length;
   } catch (error) {
     console.error('Error occurred while reading the file:', error);
@@ -113,14 +141,14 @@ async function parseTaintFlowFile(taintFile: string, cFile: string): Promise<vsc
 
         const { ln, cl, fl } = newsegment;
 
-        const linelen = await getLineLength(cFile, ln);
+        const linelen = await getLineLength(cFile, ln, cl);
         if (linelen === -1) {
           console.error(`Line ${cl} does not exist in the file or an error occurred while reading.`);
           continue;
         }
 
         const decoration: vscode.DecorationOptions = {
-          range: new vscode.Range(ln - 1, cl - 1, ln - 1, cl + linelen),
+          range: new vscode.Range(ln - 1, cl - 1, ln - 1, linelen),
           hoverMessage: `Tainted Path Segment: ${fl}:${ln}:${cl}`,
         };
 
@@ -134,6 +162,10 @@ async function parseTaintFlowFile(taintFile: string, cFile: string): Promise<vsc
   return taintPaths;
 }
 
+export const sleep = (ms: number)=> {
+  return new Promise(resolve=>setTimeout(resolve, ms));
+};
+
 export function activate(context: vscode.ExtensionContext) {
   let disposable = vscode.commands.registerCommand('extension.highlightTaintedPaths', async () => {
     try {
@@ -142,43 +174,39 @@ export function activate(context: vscode.ExtensionContext) {
         const cFilePath = activeEditor.document.uri.fsPath;
         const currentFileNameWithoutExtension = removeFileExtension(cFilePath);
         const llFilePath = `${currentFileNameWithoutExtension}.ll`;
+
+        const currentFileDirectory = path.dirname(__filename);
+        const programPath = path.join(currentFileDirectory, 'analyze');
+        const args = [llFilePath];
+
         compileToLLVMIR(cFilePath, llFilePath)
           .then(() => {
             console.log('Compilation successful!');
+            runBinaryProgram(programPath, args)
+              .then(() => {
+                vscode.window.showInformationMessage('Binary program execution completed successfully!');
+                const taintFlowFilePath = path.join(path.dirname(cFilePath), 'taint.txt');
+                parseTaintFlowFile(taintFlowFilePath, cFilePath)
+                  .then((taintPaths) => {
+                    const decorationType = vscode.window.createTextEditorDecorationType({
+                      backgroundColor: 'rgba(127,255,127,0.07)',
+                      border: '2px solid white',
+                      fontWeight: 'bold',
+                    });
+
+                    activeEditor.setDecorations(decorationType, taintPaths);
+                  })
+                  .catch((error) => {
+                    vscode.window.showErrorMessage(`Taint flow file parsing failed: ${error}`);
+                  });
+              })
+              .catch((error) => {
+                vscode.window.showErrorMessage(`Binary program execution failed: ${error}`);
+              });
           })
           .catch((error) => {
             console.error('Compilation failed:', error);
           });
-          const currentFileDirectory = path.dirname(__filename);
-          console.log(currentFileDirectory);
-          const programPath = `${currentFileDirectory}/analyze`;
-          const args = [llFilePath];
-
-          try {
-            // Execute the binary program
-            await runBinaryProgram(programPath, args);
-            vscode.window.showInformationMessage('Binary program execution completed successfully!');
-          } catch (error) {
-            const err: Error = error as Error;
-            vscode.window.showErrorMessage(`Binary program execution failed: ${err.message}`);
-          }
-        // log(cFilePath);
-        // const taintFlowFilePath = `${currentFileNameWithoutExtension}.txt`;
-        let parentFolderPath = path.dirname(cFilePath);
-        console.log(parentFolderPath);
-        const taintFlowFilePath = `${parentFolderPath}/taint.txt`;
-
-        if (fs.existsSync(taintFlowFilePath)) {
-          const taintPaths = await parseTaintFlowFile(taintFlowFilePath, cFilePath);
-
-          const decorationType = vscode.window.createTextEditorDecorationType({
-            backgroundColor: 'rgba(255, 0, 0, 0.3)',
-          });
-
-          activeEditor.setDecorations(decorationType, taintPaths);
-        } else {
-          vscode.window.showErrorMessage(`Taint flow file not found: ${taintFlowFilePath}`);
-        }
       }
     } catch (error) {
       console.error(error);

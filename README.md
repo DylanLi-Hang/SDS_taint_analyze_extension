@@ -1,4 +1,4 @@
-# Single C File Taint Path Annotate README
+# Single C File Taint Path Annotate
 
 This vscode extension uses [SVF Framework](https://github.com/SVF-tools/SVF) and according to the [teaching materials](https://github.com/SVF-tools/Teaching-Software-Analysis) to create the vscode extension which can highlight the taint path of single .c file.
 
@@ -26,7 +26,39 @@ It currently supports two commands:
 ```
 
 - **highlightTaintedPaths** works on the currently opened `.c` file, and it also requires a `SrcSnk.txt` file in the same directory with `.c` file. The extension should generate a `.ll` file which is llvm ir file, and `taint.txt` which contains the taint path of the  C code file.
+
+  - The folder of your code to analyze:
+
+      ```
+      code folder/
+      ├─ code_to_analyze.c
+      ├─ SrcSnk.txt
+      ```
+
+  - After running the command, you folder should be:
+
+    ```
+    code folder/
+    ├─ code_to_analyze.c
+    ├─ SrcSnk.txt
+    ├─ taint.txt
+    ├─ code_to_analyze.ll
+    ```
+  The extension should generate two files, and annotate the code with `taint.txt`.
+
 - **highlightTaintedPathsIR** annotate current opened `.c` file with *exsisted* `cFilename.txt` which contains same content with `taint.txt`. It won't perform code analyze and just simply annotate with given txt file. 
+  
+  - This command only require .c file and taint.txt
+      ```
+        code folder/
+        ├─ code_to_analyze.c
+        ├─ code_to_analyze.txt (same name with your code filename)
+      ```
+  - Taint path text file format:
+     ```
+     { ln: 9  cl: 25  fl: test4.c } -->
+     { ln: 13  cl: 13  fl: test4.c } -->
+     ```
 
 ## Known Issues
 
@@ -37,3 +69,7 @@ The bundled binary file only supports Unix like file path. It is created with Ma
 ### 1.0.0
 
 Initial release of extension.
+
+### 1.0.1
+
+Fix bug: the highlight should be processed after the taint.txt file generates.
